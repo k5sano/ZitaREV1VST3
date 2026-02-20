@@ -86,15 +86,30 @@ void ZitaRev1Processor::prepareToPlay (double sampleRate, int samplesPerBlock)
     _reverb.init (static_cast<float> (sampleRate), /*ambis=*/false);
     _reverbReady = true;
 
-    // APVTS 現在値を反映（カウンタ不一致を設定し、最初の processBlock で prepare() がランプを実行）
+    // APVTS 現在値を反映（内部カウンタに差分を発生させる）
     syncAllParams();
 
-    // ※ ここで prepare() を呼ばない
-    //    prepare() はランプ差分 (_d0/_d1) を計算するだけで、実際のゲイン更新は process() 内で行われる
-    //    prepare() を process() なしに呼ぶとカウンタだけ同期され、_g0 = _g1 = 0 が固定されて無音になる
+    // ★ バグ①修正：prepare() を必ず呼ぶ
+    //    これで _d0/_d1 が計算され、process() 内で _g0/_g1 が 0 から目標値へランプする
+    _reverb.prepare (samplesPerBlock);
 
     // dry バッファのサイズを確保
     _dryBuffer.setSize (2, samplesPerBlock);
+
+    // ダミーの無音ブロックを流して _g0/_g1 を目標値まで進める
+    {
+        const int warmupFrames = samplesPerBlock;
+        std::vector<float> silence (warmupFrames, 0.0f);
+        std::vector<float> outBuf  (warmupFrames, 0.0f);
+        float* wi[4] = { silence.data(), silence.data(), nullptr, nullptr };
+        float* wo[4] = { outBuf.data(),  outBuf.data(),  nullptr, nullptr };
+
+        for (int i = 0; i < 4; ++i)
+        {
+            _reverb.prepare (samplesPerBlock);
+            _reverb.process (samplesPerBlock, wi, wo);
+        }
+    }
 }
 
 void ZitaRev1Processor::releaseResources()
@@ -147,6 +162,15 @@ void ZitaRev1Processor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ④ リバーブ処理本体
     _reverb.process (numSamples, inp, out);
+
+#ifdef JUCE_DEBUG
+    {
+        float outL = buffer.getReadPointer(0)[0];
+        float outR = buffer.getReadPointer(1)[0];
+        DBG ("ZitaRev1 out[0] L=" + juce::String(outL)
+             + "  R=" + juce::String(outR));
+    }
+#endif
 
     // ⑤ 出力ゲイン補正（wet が元々小さいので +6 dB 補正）
     buffer.applyGain (2.0f);
