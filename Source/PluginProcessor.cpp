@@ -86,11 +86,12 @@ void ZitaRev1Processor::prepareToPlay (double sampleRate, int samplesPerBlock)
     _reverb.init (static_cast<float> (sampleRate), /*ambis=*/false);
     _reverbReady = true;
 
-    // パラメータ初期値を明示的にセット（APVTS の現在値を反映）
+    // APVTS 現在値を反映（カウンタ不一致を設定し、最初の processBlock で prepare() がランプを実行）
     syncAllParams();
 
-    // ★ prepare() を必ず呼ぶ（_g0/_g1 を初期化するため）
-    _reverb.prepare (samplesPerBlock);
+    // ※ ここで prepare() を呼ばない
+    //    prepare() はランプ差分 (_d0/_d1) を計算するだけで、実際のゲイン更新は process() 内で行われる
+    //    prepare() を process() なしに呼ぶとカウンタだけ同期され、_g0 = _g1 = 0 が固定されて無音になる
 
     // dry バッファのサイズを確保
     _dryBuffer.setSize (2, samplesPerBlock);
